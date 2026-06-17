@@ -21,13 +21,11 @@ public abstract class CommandConsumerBase<T>(
         return HandlerAsync.HandleAsync(message, cancellationToken);
     }
 
-    public Task StartAsync(CancellationToken cancellationToken = default)
-    {
-        return StartConsumerAsync<T>(ConsumeAsync, cancellationToken);
-    }
+    public Task StartAsync(CancellationToken cancellationToken = default) =>
+        StartConsumerAsync<T>(ConsumeAsync, cancellationToken);
+   
 
-    public Task StopAsync(CancellationToken cancellationToken = default)
-    {
-        return StopConsumerAsync(cancellationToken);
-    }
+    public Task StopAsync(CancellationToken cancellationToken = default) =>
+        StopConsumerAsync(cancellationToken);
+    
 }

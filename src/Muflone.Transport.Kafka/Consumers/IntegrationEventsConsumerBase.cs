@@ -5,18 +5,14 @@ using Muflone.Transport.Kafka.Models;
 
 namespace Muflone.Transport.Kafka.Consumers;
 
-public abstract class IntegrationEventsConsumerBase<T> : ConsumerBase, IIntegrationEventConsumer<T>
+public abstract class IntegrationEventsConsumerBase<T>(
+    KafkaConfiguration configuration,
+    ILoggerFactory loggerFactory,
+    ISerializer? messageSerializer = null)
+    : ConsumerBase(configuration, loggerFactory, messageSerializer), IIntegrationEventConsumer<T>
     where T : IntegrationEvent
 {
     protected abstract IEnumerable<IIntegrationEventHandlerAsync<T>> HandlersAsync { get; }
-
-    protected IntegrationEventsConsumerBase(
-        KafkaConfiguration configuration,
-        ILoggerFactory loggerFactory,
-        ISerializer? messageSerializer = null)
-        : base(configuration, loggerFactory, messageSerializer)
-    {
-    }
 
     public async Task ConsumeAsync(T message, CancellationToken cancellationToken = default)
     {
@@ -37,14 +33,3 @@ public abstract class IntegrationEventsConsumerBase<T> : ConsumerBase, IIntegrat
     }
 }
 
-public abstract class IntegrazionEventsConsumerBase<T> : IntegrationEventsConsumerBase<T>
-    where T : IntegrationEvent
-{
-    protected IntegrazionEventsConsumerBase(
-        KafkaConfiguration configuration,
-        ILoggerFactory loggerFactory,
-        ISerializer? messageSerializer = null)
-        : base(configuration, loggerFactory, messageSerializer)
-    {
-    }
-}

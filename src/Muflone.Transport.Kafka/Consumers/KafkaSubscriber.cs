@@ -1,11 +1,13 @@
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
 using Muflone.Messages;
+using Muflone.Persistence;
 using Muflone.Transport.Kafka.Models;
+using Muflone.Transport.Kafka.Serialization;
+using KafkaConsumerClient = Confluent.Kafka.IConsumer<string, byte[]>;
 
 namespace Muflone.Transport.Kafka.Consumers;
 
-using KafkaConsumerClient = Confluent.Kafka.IConsumer<string, string>;
 
 public class KafkaSubscriber(
     ILoggerFactory loggerFactory,
@@ -13,13 +15,14 @@ public class KafkaSubscriber(
     KafkaConfiguration configuration) : MessageSubscriberBase<KafkaSubscriptionChannel>(loggerFactory, serviceProvider)
 {
     private readonly ILogger _logger = loggerFactory.CreateLogger<KafkaSubscriber>();
+    private readonly IKafkaMessageSerializer _kafkaMessageSerializer = KafkaMessageSerializerFactory.Create(configuration, new Serializer());
 
     protected override async Task StopChannelAsync(HandlerSubscription<KafkaSubscriptionChannel> handlerSubscription)
     {
-        if (handlerSubscription.Channel == null)
+        if (handlerSubscription.Channel is null)
             return;
 
-        await handlerSubscription.Channel.StopAsync().ConfigureAwait(false);
+        await handlerSubscription.Channel.StopAsync();
         handlerSubscription.Channel = null;
     }
 
@@ -38,7 +41,9 @@ public class KafkaSubscriber(
             AllowAutoCreateTopics = true
         };
 
-        var consumer = new ConsumerBuilder<string, string>(consumerConfig).Build();
+        configuration.ApplyBrokerAuthentication(consumerConfig);
+
+        var consumer = new ConsumerBuilder<string, byte[]>(consumerConfig).Build();
         consumer.Subscribe(topicName);
 
         _logger.LogInformation(
@@ -55,14 +60,14 @@ public class KafkaSubscriber(
         var channel = handlerSubscription.Channel
             ?? throw new InvalidOperationException("Kafka channel has not been initialized.");
 
-        if (channel.ConsumerTask != null)
+        if (channel.ConsumerTask is not null)
             return Task.CompletedTask;
 
         channel.ConsumerTask = Task.Run(async () =>
         {
             while (!channel.StoppingTokenSource.IsCancellationRequested)
             {
-                ConsumeResult<string, string>? consumeResult;
+                ConsumeResult<string, byte[]>? consumeResult;
 
                 try
                 {
@@ -78,12 +83,19 @@ public class KafkaSubscriber(
                     continue;
                 }
 
-                if (consumeResult?.Message?.Value == null)
+                if (consumeResult?.Message?.Value is null)
                     continue;
 
                 try
                 {
-                    await handlerSubscription.MessageAsync(consumeResult.Message.Value, CancellationToken.None).ConfigureAwait(false);
+                    var payload = await _kafkaMessageSerializer
+                        .DeserializePayloadAsync(consumeResult.Topic, consumeResult.Message.Value, channel.StoppingTokenSource.Token);
+                        
+
+                    if (payload is null)
+                        continue;
+
+                    await handlerSubscription.MessageAsync(payload, CancellationToken.None);
                     channel.Consumer.Commit(consumeResult);
                 }
                 catch (Exception ex)
@@ -100,19 +112,33 @@ public class KafkaSubscriber(
         return Task.CompletedTask;
     }
 
-    private string GetTopicName(HandlerSubscription<KafkaSubscriptionChannel> handlerSubscription)
-    {
-        return handlerSubscription.EventTypeName.ToLowerInvariant();
-    }
+    private static string GetTopicName(HandlerSubscription<KafkaSubscriptionChannel> handlerSubscription)
+    => handlerSubscription.EventTypeName.ToLowerInvariant();
 
+
+    // topicHandler-{Guid}
+    // private string GetGroupId(HandlerSubscription<KafkaSubscriptionChannel> handlerSubscription)
+    // {
+    //     var groupId = $"{configuration.GroupId}.{handlerSubscription.EventTypeName}";
+    //     if (groupId.EndsWith("Consumer", StringComparison.InvariantCultureIgnoreCase))
+    //         groupId = groupId[..^"Consumer".Length];
+    //
+    //     if (!handlerSubscription.IsCommandHandler || !handlerSubscription.IsSingletonHandler)
+    //         groupId = $"{groupId}.{handlerSubscription.HandlerSubscriptionId}";
+    //
+    //     return groupId;
+    // }
+
+    // topicHandler
     private string GetGroupId(HandlerSubscription<KafkaSubscriptionChannel> handlerSubscription)
     {
         var groupId = $"{configuration.GroupId}.{handlerSubscription.EventTypeName}";
+
         if (groupId.EndsWith("Consumer", StringComparison.InvariantCultureIgnoreCase))
             groupId = groupId[..^"Consumer".Length];
 
-        if (!handlerSubscription.IsCommandHandler || !handlerSubscription.IsSingletonHandler)
-            groupId = $"{groupId}.{handlerSubscription.HandlerSubscriptionId}";
+        if (handlerSubscription.Configuration?.InstanceId is { Length: > 0 } instanceId)
+            groupId = $"{groupId}.{instanceId}";
 
         return groupId;
     }
@@ -126,13 +152,13 @@ public sealed class KafkaSubscriptionChannel(KafkaConsumerClient consumer)
 
     public async Task StopAsync()
     {
-        await StoppingTokenSource.CancelAsync().ConfigureAwait(false);
+        await StoppingTokenSource.CancelAsync();
 
-        if (ConsumerTask != null)
+        if (ConsumerTask is not null)
         {
             try
             {
-                await ConsumerTask.ConfigureAwait(false);
+                await ConsumerTask;
             }
             catch (OperationCanceledException)
             {

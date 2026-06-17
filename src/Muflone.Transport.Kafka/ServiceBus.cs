@@ -5,6 +5,7 @@ using Muflone.Messages.Commands;
 using Muflone.Messages.Events;
 using Muflone.Persistence;
 using Muflone.Transport.Kafka.Models;
+using Muflone.Transport.Kafka.Serialization;
 using System.Text;
 
 namespace Muflone.Transport.Kafka;
@@ -12,10 +13,10 @@ namespace Muflone.Transport.Kafka;
 public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
 {
     private readonly KafkaConfiguration _configuration;
-    private readonly ISerializer _messageSerializer;
+    private readonly IKafkaMessageSerializer _kafkaMessageSerializer;
     private readonly ILogger _logger;
     private readonly object _producerLock = new();
-    private IProducer<string, string>? _producer;
+    private IProducer<string, byte[]>? _producer;
 
     public ServiceBus(
         KafkaConfiguration configuration,
@@ -23,7 +24,7 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
         ISerializer? messageSerializer = null)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _messageSerializer = messageSerializer ?? new Serializer();
+        _kafkaMessageSerializer = KafkaMessageSerializerFactory.Create(configuration, messageSerializer ?? new Serializer());
         _logger = loggerFactory?.CreateLogger(GetType()) ?? throw new ArgumentNullException(nameof(loggerFactory));
     }
 
@@ -44,8 +45,8 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
     private async Task ProduceAsync<TMessage>(TMessage message, CancellationToken cancellationToken)
         where TMessage : class, IMessage
     {
-        var serializedMessage = await _messageSerializer.SerializeAsync(message, cancellationToken).ConfigureAwait(false);
         var topicName = _configuration.GetTopicName(message.GetType());
+        var serializedMessage = await _kafkaMessageSerializer.SerializeAsync(topicName, message, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
             "Publishing message '{MessageId}' of type '{MessageType}' to topic '{TopicName}'",
@@ -53,7 +54,7 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
             message.GetType().FullName,
             topicName);
 
-        var kafkaMessage = new Message<string, string>
+        var kafkaMessage = new Message<string, byte[]>
         {
             Key = message.MessageId.ToString(),
             Value = serializedMessage,
@@ -63,7 +64,7 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
         await GetProducer().ProduceAsync(topicName, kafkaMessage, cancellationToken).ConfigureAwait(false);
     }
 
-    private IProducer<string, string> GetProducer()
+    private IProducer<string, byte[]> GetProducer()
     {
         if (_producer != null)
             return _producer;
@@ -79,7 +80,9 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
                 ClientId = _configuration.ClientId
             };
 
-            _producer = new ProducerBuilder<string, string>(producerConfig).Build();
+            _configuration.ApplyBrokerAuthentication(producerConfig);
+
+            _producer = new ProducerBuilder<string, byte[]>(producerConfig).Build();
             return _producer;
         }
     }
@@ -93,7 +96,7 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
 
         foreach (var userProperty in message.UserProperties)
         {
-            if (userProperty.Value == null)
+            if (userProperty.Value is null)
                 continue;
 
             headers.Add(userProperty.Key, Encoding.UTF8.GetBytes(userProperty.Value.ToString()!));
@@ -106,6 +109,7 @@ public sealed class ServiceBus : IServiceBus, IEventBus, IDisposable
     {
         _producer?.Flush(TimeSpan.FromSeconds(10));
         _producer?.Dispose();
+        _kafkaMessageSerializer.DisposeAsync().AsTask().GetAwaiter().GetResult();
         GC.SuppressFinalize(this);
     }
 }

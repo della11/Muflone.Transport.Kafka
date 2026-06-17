@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+option csharp_namespace = "Muflone.Transport.Kafka.Serialization.Protobuf";
+
+message KafkaEnvelopeContract {
+  string message_type = 1;
+  string payload = 2;
+}
