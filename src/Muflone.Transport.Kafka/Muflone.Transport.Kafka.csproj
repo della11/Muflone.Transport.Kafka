@@ -53,4 +53,10 @@
 		<Protobuf Include="Serialization\Protobuf\kafka_envelope.proto" GrpcServices="None" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <None Update="README.md">
+	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	  </None>
+	</ItemGroup>
+
 </Project>
