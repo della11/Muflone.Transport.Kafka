@@ -4,16 +4,17 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<Authors>Fabio Della Rosa </Authors>
+		<Authors>Fabio Della Rosa, Alberto Acerbis, Alessandro Colla</Authors>
 		<PackageProjectUrl>https://github.com/CQRS-Muflone/Muflone.Transport.Kafka</PackageProjectUrl>
 		<!--<PackageIcon>Logo.png</PackageIcon>-->
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<RepositoryType>Git</RepositoryType>
 		<PackageTags>Broker, Kafka, CQRS, Saga, Event Sourcing</PackageTags>
+		<Copyright>Alessandro Colla, Alberto Acerbis and contributors</Copyright>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
 		<GeneratePackageOnBuild>True</GeneratePackageOnBuild>
-		<Version>10.0.0-alpha</Version>
+		<Version>10.0.0</Version>
 		<PackageReleaseNotes>
 			First alpha release of Muflone.Transport.Kafka, a transport implementation for Apache Kafka in the Muflone ecosystem. This release includes basic functionality for sending and receiving messages, as well as integration with the Muflone framework. Please note that this is an alpha release and may contain bugs or incomplete features.
 			Feedback and contributions are welcome!
