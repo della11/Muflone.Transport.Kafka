@@ -10,8 +10,6 @@ public class KafkaBrokerStarter(IEnumerable<IConsumer> consumers) : IHostedServi
             await consumer.StartAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    
 }

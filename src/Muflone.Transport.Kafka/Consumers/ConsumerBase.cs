@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Muflone.Messages;
 using Muflone.Persistence;
 using Muflone.Transport.Kafka.Models;
+using Muflone.Transport.Kafka.Serialization;
 
 namespace Muflone.Transport.Kafka.Consumers;
 
@@ -10,9 +11,9 @@ public abstract class ConsumerBase : IAsyncDisposable
 {
     protected readonly KafkaConfiguration Configuration;
     protected readonly ILogger Logger;
-    protected readonly ISerializer MessageSerializer;
+    private readonly IKafkaMessageSerializer _kafkaMessageSerializer;
 
-    private IConsumer<string, string>? _consumer;
+    private IConsumer<string, byte[]>? _consumer;
     private Task? _consumerTask;
     private CancellationTokenSource? _stoppingTokenSource;
 
@@ -23,7 +24,7 @@ public abstract class ConsumerBase : IAsyncDisposable
     {
         Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         Logger = loggerFactory?.CreateLogger(GetType()) ?? throw new ArgumentNullException(nameof(loggerFactory));
-        MessageSerializer = messageSerializer ?? new Serializer();
+        _kafkaMessageSerializer = KafkaMessageSerializerFactory.Create(configuration, messageSerializer ?? new Serializer());
     }
 
     protected Task StartConsumerAsync<TMessage>(
@@ -75,7 +76,7 @@ public abstract class ConsumerBase : IAsyncDisposable
         }
     }
 
-    private IConsumer<string, string> CreateConsumer<TMessage>()
+    private IConsumer<string, byte[]> CreateConsumer<TMessage>()
         where TMessage : class, IMessage
     {
         var consumerConfig = new ConsumerConfig
@@ -88,11 +89,13 @@ public abstract class ConsumerBase : IAsyncDisposable
             AllowAutoCreateTopics = true
         };
 
-        return new ConsumerBuilder<string, string>(consumerConfig).Build();
+        Configuration.ApplyBrokerAuthentication(consumerConfig);
+
+        return new ConsumerBuilder<string, byte[]>(consumerConfig).Build();
     }
 
     private async Task ConsumeLoopAsync<TMessage>(
-        IConsumer<string, string> consumer,
+        IConsumer<string, byte[]> consumer,
         Func<TMessage, CancellationToken, Task> messageHandler,
         CancellationToken cancellationToken)
         where TMessage : class, IMessage
@@ -101,7 +104,7 @@ public abstract class ConsumerBase : IAsyncDisposable
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                ConsumeResult<string, string>? consumeResult;
+                ConsumeResult<string, byte[]>? consumeResult;
 
                 try
                 {
@@ -118,8 +121,8 @@ public abstract class ConsumerBase : IAsyncDisposable
 
                 try
                 {
-                    var message = await MessageSerializer
-                        .DeserializeAsync<TMessage>(consumeResult.Message.Value, cancellationToken)
+                    var message = await _kafkaMessageSerializer
+                        .DeserializeAsync<TMessage>(consumeResult.Topic, consumeResult.Message.Value, cancellationToken)
                         .ConfigureAwait(false);
 
                     if (message == null)
@@ -168,6 +171,7 @@ public abstract class ConsumerBase : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopConsumerAsync().ConfigureAwait(false);
+        await _kafkaMessageSerializer.DisposeAsync().ConfigureAwait(false);
         GC.SuppressFinalize(this);
     }
 }

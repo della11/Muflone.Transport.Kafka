@@ -22,6 +22,8 @@ Explicit consumers are still supported, but the transport can now also dispatch 
 - **Automatic Handler Dispatch** - Supports `IMessageSubscriber` and `MessageHandlersStarter`, aligned with the RabbitMQ transport
 - **Explicit Consumers** - Supports `CommandConsumerBase`, `DomainEventsConsumerBase`, and `IntegrationEventsConsumerBase`
 - **Topic Naming Convention** - Customize topic naming through `KafkaConfiguration.TopicNamingConvention`
+- **Schema Registry Integration** - Supports Confluent Schema Registry for `Json`, `Avro`, and `Protobuf`
+- **Basic Auth** - Supports SASL basic auth for Kafka brokers and HTTP Basic Auth for Schema Registry
 - **Async-first** - All operations use async/await
 - **.NET 10** - Built for `net10.0` with nullable reference types
 
@@ -191,6 +193,13 @@ var kafkaConfiguration = new KafkaConfiguration(
     autoOffsetReset: AutoOffsetReset.Earliest
 );
 
+kafkaConfiguration.BrokerUsername = "kafka-user";
+kafkaConfiguration.BrokerPassword = "kafka-password";
+kafkaConfiguration.SchemaRegistryUrl = "https://localhost:8081";
+kafkaConfiguration.SchemaRegistryUsername = "schema-user";
+kafkaConfiguration.SchemaRegistryPassword = "schema-password";
+kafkaConfiguration.SerializationFormat = KafkaSerializationFormat.Json;
+
 // Register handlers
 builder.Services.AddScoped<ICommandHandlerAsync<CreateOrder>, CreateOrderCommandHandler>();
 builder.Services.AddScoped<IDomainEventHandlerAsync<OrderCreated>, OrderCreatedEventHandler>();
@@ -274,6 +283,35 @@ new KafkaConfiguration(bootstrapServers, groupId, clientId, AutoOffsetReset.Earl
 | `groupId`           | Consumer group id used by Kafka consumers           | -          |
 | `clientId`          | Client id used by the producer and subscribers      | `groupId`  |
 | `autoOffsetReset`   | Kafka offset reset strategy                         | `Earliest` |
+
+### Broker basic auth
+
+```csharp
+kafkaConfiguration.BrokerUsername = "kafka-user";
+kafkaConfiguration.BrokerPassword = "kafka-password";
+kafkaConfiguration.BrokerSecurityProtocol = SecurityProtocol.SaslSsl;
+kafkaConfiguration.BrokerSaslMechanism = SaslMechanism.Plain;
+```
+
+### Schema Registry and serialization format
+
+The transport keeps using the configured Muflone `ISerializer` for the domain message payload and wraps that payload in a Kafka envelope managed through Schema Registry.
+
+This means:
+
+- existing Muflone messages do not need to become Avro or Protobuf classes
+- Kafka producer/consumer wire format is controlled by `KafkaSerializationFormat`
+- Schema Registry subjects are registered through the Confluent .NET serdes packages
+
+```csharp
+kafkaConfiguration.SchemaRegistryUrl = "https://localhost:8081";
+kafkaConfiguration.SchemaRegistryUsername = "schema-user";
+kafkaConfiguration.SchemaRegistryPassword = "schema-password";
+kafkaConfiguration.SchemaRegistryAutoRegisterSchemas = true;
+kafkaConfiguration.SerializationFormat = KafkaSerializationFormat.Avro;
+// or KafkaSerializationFormat.Json
+// or KafkaSerializationFormat.Protobuf
+```
 
 
 ### Custom topic naming
